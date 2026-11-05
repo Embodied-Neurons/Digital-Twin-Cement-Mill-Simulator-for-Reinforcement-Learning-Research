@@ -18,13 +18,14 @@ COLORS = dict(feed="#526778", transfer="#168d98", discharge="#168d98",
 class ParameterWindow:
     """Pobiera i sprawdza parametry symulacji w formularzu."""
 
-    def __init__(self, feed=None, rpm=None, hardness=1, minutes=120):
+    def __init__(self, feed=None, rpm=None, hardness=1, minutes=120, gas_flow=None):
         self.root = tk.Tk()
         self.root.title("Młyn cementu — parametry")
         self.root.resizable(False, False)
         self.selection = None
         self.initial = (DEFAULT_INPUTS.feed_tph if feed is None else feed,
-                        DEFAULT_INPUTS.separator_rpm if rpm is None else rpm, hardness, minutes)
+                        DEFAULT_INPUTS.separator_rpm if rpm is None else rpm, hardness, minutes,
+                        DEFAULT_INPUTS.gas_flow_nm3_h if gas_flow is None else gas_flow)
         body = ttk.Frame(self.root, padding=24)
         body.grid()
         ttk.Label(body, text="Parametry symulacji", font=("Segoe UI", 15, "bold")).grid(
@@ -33,7 +34,8 @@ class ParameterWindow:
             row=1, column=0, columnspan=3, sticky="w", pady=(0, 18))
         self.values, self.entries = [], []
         fields = (("Nadawa", "t/h · 0–200"), ("Obroty separatora", "obr/min · 500–1800"),
-                  ("Opór rozdrabniania", "0,5–2 · 1 = bazowy"), ("Czas procesu", "min · co najmniej 1"))
+                  ("Opór rozdrabniania", "0,5–2 · 1 = bazowy"), ("Czas procesu", "min · co najmniej 1"),
+                  ("Przepływ gazów za młynem", "Nm³/h · 5000–30000"))
         for row, ((label, unit), value) in enumerate(zip(fields, self.initial), start=2):
             ttk.Label(body, text=label).grid(row=row, column=0, sticky="w", padx=(0, 18), pady=7)
             variable = tk.StringVar(value=f"{value:g}")
@@ -44,9 +46,9 @@ class ParameterWindow:
             self.entries.append(entry)
         self.error = tk.StringVar()
         ttk.Label(body, textvariable=self.error, foreground="#b52828", wraplength=440).grid(
-            row=6, column=0, columnspan=3, sticky="w", pady=(8, 12))
+            row=7, column=0, columnspan=3, sticky="w", pady=(8, 12))
         buttons = ttk.Frame(body)
-        buttons.grid(row=7, column=0, columnspan=3, sticky="ew")
+        buttons.grid(row=8, column=0, columnspan=3, sticky="ew")
         ttk.Button(buttons, text="Przywróć domyślne", command=self.defaults).pack(side=tk.LEFT)
         ttk.Button(buttons, text="Anuluj", command=self.root.destroy).pack(side=tk.RIGHT, padx=(8, 0))
         self.run_button = ttk.Button(buttons, text="Uruchom", command=self.submit)
@@ -57,7 +59,8 @@ class ParameterWindow:
         self.entries[0].selection_range(0, tk.END)
 
     def defaults(self):
-        self.initial = (DEFAULT_INPUTS.feed_tph, DEFAULT_INPUTS.separator_rpm, DEFAULT_INPUTS.hardness, 120)
+        self.initial = (DEFAULT_INPUTS.feed_tph, DEFAULT_INPUTS.separator_rpm, DEFAULT_INPUTS.hardness, 120,
+                        DEFAULT_INPUTS.gas_flow_nm3_h)
         for variable, value in zip(self.values, self.initial):
             variable.set(f"{value:g}")
         self.error.set("")
@@ -71,20 +74,21 @@ class ParameterWindow:
             self.error.set("Wpisz liczby. Możesz użyć kropki lub przecinka dziesiętnego.")
             return
         try:
-            inputs = Inputs(*values[:3])
+            inputs = Inputs(*values[:3], gas_flow_nm3_h=values[4])
             Scenario(before=inputs, after=inputs, duration_min=values[3],
                      step_min=0, start_empty=True)
         except ValueError as error:
             message = str(error).replace("feed_tph", "Nadawa").replace(
-                "separator_rpm", "Obroty separatora").replace("hardness", "Opór rozdrabniania")
+                "separator_rpm", "Obroty separatora").replace("hardness", "Opór rozdrabniania").replace(
+                "gas_flow_nm3_h", "Przepływ gazów za młynem")
             self.error.set(message)
             return
         self.selection = values
         self.root.destroy()
 
 
-def ask_parameters(feed=None, rpm=None, hardness=1, minutes=120):
-    window = ParameterWindow(feed, rpm, hardness, minutes)
+def ask_parameters(feed=None, rpm=None, hardness=1, minutes=120, gas_flow=None):
+    window = ParameterWindow(feed, rpm, hardness, minutes, gas_flow)
     window.root.mainloop()
     return window.selection
 
@@ -223,7 +227,8 @@ class ProcessFigure:
             at = lambda key: float(self.s[key][index])
             self.caption.set_text(f"Czas: {self.times[index]:.1f} / {self.end_min:g} min   ·   "
                                   f"Nadawa: {at('feed_tph'):g} t/h   ·   "
-                                  f"Separator: {at('separator_rpm'):g} obr/min   ·   Opór: {at('hardness'):g}")
+                                  f"Separator: {at('separator_rpm'):g} obr/min   ·   Opór: {at('hardness'):g}"
+                                  f"   ·   Gazy: {at('gas_flow_nm3_h'):.0f} Nm³/h")
             for fill, label, key in zip(self.fills, self.mass_labels, ("chamber1_t", "chamber2_t")):
                 fill.set_height(1.68 * max(0., at(key)) / self.level_scale)
                 label.set_text(f"{at(key):.2f} t")
@@ -279,14 +284,14 @@ class LiveWindow:
         self.values = []
         for column, (label, value) in enumerate((('Nadawa [t/h]', inputs.feed_tph),
                 ('Separator [obr/min]', inputs.separator_rpm), ('Opór [0,5–2]', inputs.hardness),
-                ('Krok [min]', self.step_min))):
+                ('Krok [min]', self.step_min), ('Gazy za młynem [Nm³/h]', inputs.gas_flow_nm3_h))):
             ttk.Label(settings, text=label).grid(row=0, column=column, sticky='w', padx=(0, 12))
             variable = tk.StringVar(value=f'{value:g}')
             ttk.Entry(settings, textvariable=variable, width=16).grid(
                 row=1, column=column, sticky='ew', padx=(0, 12))
             self.values.append(variable)
         self.apply_button = ttk.Button(settings, text='Zastosuj nastawy', command=self.apply_settings)
-        self.apply_button.grid(row=1, column=4, padx=(0, 12))
+        self.apply_button.grid(row=1, column=5, padx=(0, 12))
         ttk.Label(controls, text='Zmiany obowiązują po Zastosuj nastawy lub Krok. '
                   'Po zamknięciu okna przebieg zostanie zapisany.').pack(anchor='w', pady=(5, 6))
         buttons = ttk.Frame(controls)
@@ -306,15 +311,16 @@ class LiveWindow:
 
     def apply_settings(self):
         try:
-            feed, rpm, hardness, duration = (float(value.get().strip().replace(',', '.'))
+            feed, rpm, hardness, duration, gas = (float(value.get().strip().replace(',', '.'))
                                              for value in self.values)
-            inputs = Inputs(feed, rpm, hardness)
+            inputs = Inputs(feed, rpm, hardness, gas)
             if not math.isfinite(duration) or not 0.01 <= duration <= 60:
                 raise ValueError('Krok musi wynosić od 0,01 do 60 minut.')
         except ValueError as error:
             self.pause()
             self.error.set(str(error).replace('feed_tph', 'Nadawa').replace(
-                'separator_rpm', 'Obroty separatora').replace('hardness', 'Opór rozdrabniania'))
+                'separator_rpm', 'Obroty separatora').replace('hardness', 'Opór rozdrabniania').replace(
+                'gas_flow_nm3_h', 'Przepływ gazów za młynem'))
             return False
         self.rows[-1] = self.simulation.set_inputs(inputs)
         self.step_min = duration
@@ -369,7 +375,8 @@ class LiveWindow:
         self.pause()
         self.rows = [self.simulation.reset(self.initial_inputs)]
         for variable, value in zip(self.values, (self.initial_inputs.feed_tph,
-                self.initial_inputs.separator_rpm, self.initial_inputs.hardness, 1)):
+                self.initial_inputs.separator_rpm, self.initial_inputs.hardness, 1,
+                self.initial_inputs.gas_flow_nm3_h)):
             variable.set(f'{value:g}')
         self.step_min = 1.
         self.phase = 0.

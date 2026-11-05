@@ -84,6 +84,7 @@ class MillSimulation:
         reactor_masses = model.inventories(state).sum(axis=1)
         return dict(time_min=time_h*60, feed_tph=inputs.feed_tph,
                     separator_rpm=inputs.separator_rpm, hardness=inputs.hardness,
+                    gas_flow_nm3_h=inputs.gas_flow_nm3_h,
                     product_tph=rate, recycle_tph=float(recycle.sum()),
                     transfer_tph=float(transfer.sum()), discharge_tph=rate + float(recycle.sum()),
                     chamber1_t=float(masses[0]), chamber2_t=float(masses[1]),

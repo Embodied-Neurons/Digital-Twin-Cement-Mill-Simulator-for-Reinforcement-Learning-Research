@@ -21,6 +21,6 @@ def save_plot(result, path):
         ax.legend(fontsize=8)
     fig.suptitle(f"Nastawy końcowe: nadawa {s['feed_tph'][-1]:g} t/h"
                  f" · separator {s['separator_rpm'][-1]:g} obr/min"
-                 f" · opór {s['hardness'][-1]:g}")
+                 f" · opór {s['hardness'][-1]:g} · gazy {s['gas_flow_nm3_h'][-1]:.0f} Nm³/h")
     fig.savefig(path, dpi=140)
     plt.close(fig)

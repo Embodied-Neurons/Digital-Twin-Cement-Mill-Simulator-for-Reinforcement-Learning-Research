@@ -72,17 +72,24 @@ class CementMill:
     def acceptance(self, inputs: Inputs):
         """Oblicza udział każdej klasy ziaren kierowany do produktu."""
         p = self.p
-        d50 = p.cut_size_um * 1000.0 / inputs.separator_rpm
-        decay = np.exp(-p.sharpness * self.sizes / d50)
+        gas_ratio = inputs.gas_flow_nm3_h / p.gas_reference_nm3_h
+        cut_size = p.cut_size_um * 1000.0 / inputs.separator_rpm * gas_ratio**p.gas_cut_exponent
+        decay = np.exp(-p.sharpness * self.sizes / cut_size)
         e = np.expm1(p.sharpness)
         return (1 - p.bypass) * e * decay / (1 + (e - 1) * decay)
+
+    def transport_factor(self, inputs: Inputs):
+        """Oblicza empiryczny mnożnik odpływów z komór przy danym przepływie gazów."""
+        p = self.p
+        return p.gas_transport_scale * (inputs.gas_flow_nm3_h / p.gas_reference_nm3_h)**p.gas_transport_exponent
 
     def flows(self, state, inputs):
         p = self.p
         w = np.maximum(self.inventories(state), 0)
         masses = np.array([w[:2].sum(), w[2:].sum()])
-        q1 = max(p.transport1_per_h * masses[0] - p.transport1_offset_tph, 0.)
-        q2 = max(p.transport2_per_h * masses[1] - p.transport2_offset_tph, 0.)
+        factor = self.transport_factor(inputs)
+        q1 = factor * max(p.transport1_per_h * masses[0] - p.transport1_offset_tph, 0.)
+        q2 = factor * max(p.transport2_per_h * masses[1] - p.transport2_offset_tph, 0.)
         def distribute(rate, inventory):
             total = float(inventory.sum())
             rate = min(rate, total / p.availability_time_h)
