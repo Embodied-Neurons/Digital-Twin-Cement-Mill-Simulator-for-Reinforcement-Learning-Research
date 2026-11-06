@@ -43,20 +43,17 @@ class Parameters:
     classes: int = 14
     top_size_um: float = 25000.0
     diaphragm_um: float = 6250.0
-    mixing_per_h: float = 180.0
-    availability_time_h: float = 1/3600
-    transport1_per_h: float = 0.0171 * 3600
-    transport2_per_h: float = 0.00705 * 3600
-    transport1_offset_tph: float = 0.0981 * 3.6
-    transport2_offset_tph: float = 0.0717 * 3.6
-    breakage1_per_h: float = 20.30
-    breakage2_per_h: float = 25.29
+    residence1_min: float = 0.84
+    residence2_min: float = 2.11
+    backmixing_ratio: float = 1.02
+    breakage1_per_h: float = 20.37
+    breakage2_per_h: float = 11.15
     mu1_um: float = 8000.0
     mu2_um: float = 1200.0
     alpha: float = 0.6
     breakage_lambda: float = 2.0
-    phi: float = 0.38
-    gamma: float = 0.49
+    phi: float = 0.87
+    gamma: float = 0.57
     beta: float = 3.0
     mill_diameter_m: float = 4.5
     mill_length_m: float = 16.0
@@ -72,9 +69,9 @@ class Parameters:
     reference_ball_diameter2_mm: float = 25.0
     ball_size_exponent: float = 1.0
     load_sensitivity: float = 1.2
-    cut_size_um: float = 86.06
-    sharpness: float = 9.61
-    bypass: float = 0.0922
+    cut_size_um: float = 111.80
+    sharpness: float = 15.00
+    bypass: float = 0.14
     feed_scale_um: float = 4000.0
     idle_power_kw: float = 2653.76
     load_power_kw: float = 453.42
@@ -82,31 +79,22 @@ class Parameters:
     separator_idle_power_kw: float = 10.47
     power_scale: float = 1.0
     gas_reference_nm3_h: float = 12616.05
-    gas_transport_scale: float = 0.97
-    gas_transport_exponent: float = -3.05
-    gas_cut_exponent: float = 0.81
 
     @classmethod
     def demonstration(cls):
         """Tworzy zestaw parametrów demonstracyjnych."""
         return cls(breakage1_per_h=35.0, breakage2_per_h=50.0,
                    cut_size_um=45.0, idle_power_kw=1000., load_power_kw=1200.,
-                   separator_power_kw=80., separator_idle_power_kw=0., power_scale=1.0,
-                   gas_transport_scale=1., gas_transport_exponent=0., gas_cut_exponent=0.)
+                   separator_power_kw=80., separator_idle_power_kw=0., power_scale=1.0)
 
     def __post_init__(self):
         if not isinstance(self.classes, int) or not 4 <= self.classes <= 40:
             raise ValueError("Liczba klas musi być całkowita, od 4 do 40.")
         for name, value in asdict(self).items():
-            if name in ("gas_transport_exponent", "gas_cut_exponent"):
-                if not math.isfinite(value):
-                    raise ValueError(f"Niepoprawny parametr: {name}.")
-                continue
             if not math.isfinite(value) or value < 0:
                 raise ValueError(f"Niepoprawny parametr: {name}.")
             if name not in ("bypass", "phi", "idle_power_kw", "load_power_kw",
-                            "separator_power_kw", "separator_idle_power_kw", "mixing_per_h",
-                            "transport1_offset_tph", "transport2_offset_tph",
+                            "separator_power_kw", "separator_idle_power_kw", "backmixing_ratio",
                             "reference_void_filling", "load_sensitivity") and value == 0:
                 raise ValueError(f"Parametr {name} musi być dodatni.")
         if not 0 <= self.phi <= 1 or not 0 <= self.bypass < 1:

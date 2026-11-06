@@ -24,6 +24,7 @@ class CementMill:
                                    p.ball_diameter2_mm, p.reference_ball_diameter2_mm)
         volume = math.pi * p.mill_diameter_m**2 / 4 * p.mill_length_m
         self.chamber_volumes_m3 = np.array([2/5, 3/5]) * volume
+        self.transport_per_h = 60 * np.array([2, 3]) / np.array([p.residence1_min, p.residence2_min])
 
     @property
     def state_size(self):
@@ -73,29 +74,16 @@ class CementMill:
         """Oblicza udział każdej klasy ziaren kierowany do produktu."""
         p = self.p
         gas_ratio = inputs.gas_flow_nm3_h / p.gas_reference_nm3_h
-        cut_size = p.cut_size_um * 1000.0 / inputs.separator_rpm * gas_ratio**p.gas_cut_exponent
+    
+        cut_size = p.cut_size_um * 1000.0 / inputs.separator_rpm * math.sqrt(gas_ratio)
         decay = np.exp(-p.sharpness * self.sizes / cut_size)
         e = np.expm1(p.sharpness)
         return (1 - p.bypass) * e * decay / (1 + (e - 1) * decay)
 
-    def transport_factor(self, inputs: Inputs):
-        """Oblicza empiryczny mnożnik odpływów z komór przy danym przepływie gazów."""
-        p = self.p
-        return p.gas_transport_scale * (inputs.gas_flow_nm3_h / p.gas_reference_nm3_h)**p.gas_transport_exponent
-
     def flows(self, state, inputs):
-        p = self.p
         w = np.maximum(self.inventories(state), 0)
-        masses = np.array([w[:2].sum(), w[2:].sum()])
-        factor = self.transport_factor(inputs)
-        q1 = factor * max(p.transport1_per_h * masses[0] - p.transport1_offset_tph, 0.)
-        q2 = factor * max(p.transport2_per_h * masses[1] - p.transport2_offset_tph, 0.)
-        def distribute(rate, inventory):
-            total = float(inventory.sum())
-            rate = min(rate, total / p.availability_time_h)
-            return rate * inventory / total if total > 0 else np.zeros(p.classes)
-        transfer = distribute(q1, self.screen * w[1])
-        discharge = distribute(q2, w[4])
+        transfer = self.transport_per_h[0] * self.screen * w[1]
+        discharge = self.transport_per_h[1] * w[4]
         product = self.acceptance(inputs) * discharge
         return transfer, product, discharge - product
 
@@ -120,8 +108,9 @@ class CementMill:
         dw = np.empty_like(w)
         dw[:2] = factor1 * (w[:2] @ self.k1.T)
         dw[2:] = factor2 * (w[2:] @ self.k2.T)
-        for a, b in ((0, 1), (2, 3), (3, 4)):
-            net = p.mixing_per_h * (w[a] - w[b])
+        for a, b, rate in ((0, 1, self.transport_per_h[0]),
+                           (2, 3, self.transport_per_h[1]), (3, 4, self.transport_per_h[1])):
+            net = rate * ((1 + p.backmixing_ratio) * w[a] - p.backmixing_ratio * w[b])
             dw[a] -= net
             dw[b] += net
         dw[0] += inputs.feed_tph * self.feed_fractions + recycle
