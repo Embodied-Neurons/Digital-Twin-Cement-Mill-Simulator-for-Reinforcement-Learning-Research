@@ -9,13 +9,15 @@ def save_plot(result, path):
     fig, axes = plt.subplots(2, 2, figsize=(10, 7), layout="constrained")
     panels = [
         ("Przepływy", "t/h", [("feed_tph", "Nadawa"), ("product_tph", "Produkt"), ("recycle_tph", "Powrót")]),
-        ("Materiał w młynie", "t", [("chamber1_t", "Komora 1"), ("chamber2_t", "Komora 2")]),
+        ("Materiał w komorach", "t", [("chamber1_t", "Komora 1"), ("chamber2_t", "Komora 2")]),
         ("Blaine z D32 (szac.)", "cm²/g", [("blaine_cm2_g", "Blaine")]),
         ("Pobór mocy", "kW", [("power_kw", "Młyn + separator")]),
     ]
     for ax, (title, unit, columns) in zip(axes.flat, panels):
         for key, label in columns:
             ax.plot(s["time_min"], s[key], label=label)
+        if s['terminated'][-1]:
+            ax.axvline(s['time_min'][-1], color="#b52828", ls=":", label="Zamielenie")
         ax.set(title=title, xlabel="Czas [min]", ylabel=unit)
         ax.grid(alpha=0.2)
         ax.legend(fontsize=8)

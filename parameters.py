@@ -59,8 +59,10 @@ class Parameters:
     mill_length_m: float = 16.0
     material_density_t_m3: float = 3.0549
     ball_void_fraction: float = 0.4
+    powder_void_fraction: float = 0.4
+    max_charge_filling: float = 1 / 3
     ball_fill1: float = 0.284
-    ball_fill2: float = 0.35
+    ball_fill2: float = 0.30
     reference_ball_fill: float = 0.3
     reference_void_filling: float = 0.6
     ball_diameter1_mm: float = 100.0
@@ -99,9 +101,12 @@ class Parameters:
                 raise ValueError(f"Parametr {name} musi być dodatni.")
         if not 0 <= self.phi <= 1 or not 0 <= self.bypass < 1:
             raise ValueError("phi musi być w [0, 1], bypass w [0, 1).")
-        for name in ('ball_fill1', 'ball_fill2', 'reference_ball_fill', 'ball_void_fraction'):
+        for name in ('ball_fill1', 'ball_fill2', 'reference_ball_fill', 'ball_void_fraction',
+                     'powder_void_fraction', 'max_charge_filling'):
             if not 0 < getattr(self, name) < 1:
                 raise ValueError(f'{name} musi należeć do (0, 1).')
+        if self.max_charge_filling <= max(self.ball_fill1, self.ball_fill2):
+            raise ValueError('Limit wypełnienia musi być większy niż wypełnienie samymi kulami.')
         if self.diaphragm_um < self.top_size_um / 2 ** (self.classes - 1):
             raise ValueError("Przepona musi przepuszczać co najmniej najmniejszą klasę.")
 

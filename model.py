@@ -38,6 +38,22 @@ class CementMill:
         w = self.inventories(state)
         return np.array([w[:2].sum(), w[2:].sum()])
 
+    def charge_filling(self, state):
+        """Szacuje udział objętości komór zajęty przez kule i materiał."""
+        p = self.p
+        ball_filling = np.array([p.ball_fill1, p.ball_fill2])
+        bulk_density = p.material_density_t_m3 * (1 - p.powder_void_fraction)
+        powder_filling = np.maximum(self.chamber_masses(state), 0) / bulk_density / self.chamber_volumes_m3
+
+        return ball_filling + np.maximum(powder_filling - p.ball_void_fraction * ball_filling, 0)
+
+    def overfill_event(self, _time, state):
+        """Zwraca zapas do granicznego wypełnienia bardziej obciążonej komory."""
+        return self.p.max_charge_filling - float(self.charge_filling(state).max())
+
+    overfill_event.terminal = True
+    overfill_event.direction = -1
+
     def _fragment_distribution(self):
         """Tworzy macierz udziałów masowych fragmentów po rozdrobnieniu."""
         p = self.p
@@ -125,6 +141,9 @@ class CementMill:
             return state
         for _ in range(12):
             solution = self._integrate(state, inputs, (0, 4))
+            if solution.status == 1:
+                raise ValueError('Osiągnięto limit wypełnienia przed uzyskaniem stanu ustalonego. '
+                                 'Zmniejsz nadawę lub wybierz start z pustego młyna.')
             state = solution.y[:, -1]
             residual = np.max(np.abs(self.rhs(0, state, inputs)[:-3]))
             if residual < 1e-6 * max(inputs.feed_tph, 1):
@@ -135,7 +154,17 @@ class CementMill:
     def _integrate(self, state, inputs, interval, times=None, rtol=1e-7):
         solution = solve_ivp(lambda t, y: self.rhs(t, y, inputs), interval,
                              state, t_eval=times, method="BDF", rtol=rtol,
-                             atol=1e-9, max_step=1/30)
+                             atol=1e-9, max_step=1/30, events=self.overfill_event)
+        if solution.status == 1:
+            event_time = solution.t_events[0][-1]
+            event_state = solution.y_events[0][-1]
+
+            if len(solution.t) == 0:
+                solution.t = np.array([event_time])
+                solution.y = event_state[:, np.newaxis]
+            elif solution.t[-1] != event_time:
+                solution.t = np.r_[solution.t, event_time]
+                solution.y = np.column_stack((solution.y, event_state))
         if not solution.success or not np.isfinite(solution.y).all():
             raise RuntimeError("Nie udało się rozwiązać równań modelu.")
         if np.min(solution.y[:-3]) < -1e-6:

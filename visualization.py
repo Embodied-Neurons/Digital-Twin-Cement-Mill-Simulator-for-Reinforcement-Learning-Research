@@ -101,6 +101,13 @@ class ProcessFigure:
         self.s = {key: np.asarray(value) for key, value in result.series.items()}
         self.times = self.s["time_min"]
         self.end_min = float(self.times[-1] if end_min is None else end_min)
+        self.fill_limit_pct = 100 * result.parameters.max_charge_filling
+        p = result.parameters
+        volumes = math.pi * p.mill_diameter_m**2 / 4 * p.mill_length_m * np.array([2/5, 3/5])
+        bulk_density = p.material_density_t_m3 * (1 - p.powder_void_fraction)
+        self.material_limits_t = volumes * bulk_density * (p.max_charge_filling
+            - (1 - p.ball_void_fraction) * np.array([p.ball_fill1, p.ball_fill2]))
+        self.live = live
         self.figure = Figure(figsize=(12, 8), dpi=100, facecolor="#f4f7fa")
         self.figure.text(.05, .965, "Młyn cementu · podgląd procesu",
                          fontsize=19, weight="bold", color=COLORS["text"])
@@ -108,9 +115,7 @@ class ProcessFigure:
         self.scheme = self.figure.add_axes([.025, .605, .745, .29])
         self.scheme.set(xlim=(0, 12), ylim=(0, 4))
         self.scheme.axis("off")
-        self.level_scale = max(1., float(max(self.s["chamber1_t"].max(),
-                                             self.s["chamber2_t"].max()) * 1.15))
-        self.fills, self.mass_labels = [], []
+        self.fills, self.mass_labels, self.charge_labels = [], [], []
         for x, title in ((2., "Komora 1"), (5.1, "Komora 2")):
             self.scheme.add_patch(Rectangle((x, 1.3), 1.7, 1.8,
                                             facecolor="#e7eef3", edgecolor="none"))
@@ -119,14 +124,19 @@ class ProcessFigure:
             self.scheme.add_patch(fill)
             self.scheme.add_patch(Rectangle((x, 1.3), 1.7, 1.8,
                                             fill=False, edgecolor="#40576a", lw=1.6))
-            self.scheme.text(x + .85, 3.35, title, ha="center", weight="bold",
+            limit_y = 1.36 + 1.68
+            self.scheme.plot([x + .06, x + 1.64], [limit_y, limit_y],
+                             color='#b52828', lw=1, ls='--')
+            self.scheme.text(x + .85, 3.6, title, ha="center", weight="bold",
                              color=COLORS["text"], fontsize=11)
+            self.charge_labels.append(self.scheme.text(x + .85, 3.22, "",
+                                      ha="center", color="#526778", fontsize=9))
             self.fills.append(fill)
             for position in ([.5] if x == 2. else [1/3, 2/3]):
                 self.scheme.plot([x+1.7*position]*2, [1.3, 3.1],
                                  color='#40576a', lw=.8, ls='--')
             self.mass_labels.append(self.scheme.text(x + .85, 2.15, "",
-                                    ha="center", va="center", weight="bold", fontsize=13))
+                                    ha="center", va="center", weight="bold", fontsize=11))
         self.scheme.text(4.4, 3.35, "Przepona", ha="center", fontsize=9, color="#526778")
         self.scheme.add_patch(Rectangle((4.27, 1.75), .15, .9,
                                         facecolor="#91a2b0", hatch="///"))
@@ -141,8 +151,11 @@ class ProcessFigure:
         self._flow("product_tph", "Produkt", [(9.55, 2.2), (11.8, 2.2)], (10.75, 2.8), COLORS["product"])
         self._flow("recycle_tph", "Powrót", [(8.825, 1.5), (8.825, .6),
                    (2.85, .6), (2.85, 1.3)], (5.8, .05), COLORS["recycle"])
-        self.level_note = self.figure.text(.05, .573, f"Skala masy komór: 0–{self.level_scale:.1f} t. "
-                         "Poziom i znaczniki przepływu są umowne. Linie przerywane: obszary modelu.",
+        self.level_note = self.figure.text(.05, .573,
+                         "Słupki: zapas materiału względem limitu zamielenia (0–100%). "
+                         "Wsad: objętość kul i materiału.\n"
+                         f"Czerwony próg: 100% dopuszczalnego zapasu, czyli {self.fill_limit_pct:.1f}% objętości komory. "
+                         "Schemat nie przedstawia wysokości warstwy.",
                          fontsize=8, color="#657786")
         self.metrics = self.figure.add_axes([.79, .62, .19, .28])
         self.metrics.axis("off")
@@ -157,7 +170,7 @@ class ProcessFigure:
         panels = [
             ("Przepływy", "t/h", [("feed_tph", "Nadawa", COLORS["feed"]),
               ("product_tph", "Produkt", COLORS["product"]), ("recycle_tph", "Powrót", COLORS["recycle"])]),
-            ("Materiał w młynie", "t", [("chamber1_t", "Komora 1", "#168d98"),
+            ("Materiał w komorach", "t", [("chamber1_t", "Komora 1", "#168d98"),
               ("chamber2_t", "Komora 2", "#556eac")]),
             ("Blaine z D32 (szac.)", "cm²/g", [("blaine_cm2_g", "Blaine", "#556eac")]),
             ("Pobór mocy", "kW", [("power_kw", "Młyn + separator", "#168d98")]),
@@ -192,10 +205,6 @@ class ProcessFigure:
         self.result = result
         self.s = {key: np.asarray(value) for key, value in result.series.items()}
         self.times = self.s['time_min']
-        self.level_scale = max(1., float(max(self.s['chamber1_t'].max(),
-                                             self.s['chamber2_t'].max()) * 1.15))
-        self.level_note.set_text(f"Skala masy komór: 0–{self.level_scale:.1f} t. "
-                                 "Poziom i znaczniki przepływu są umowne. Linie przerywane: obszary modelu.")
         for ax, keys in self.plot_axes:
             finite = np.concatenate([self.s[key][np.isfinite(self.s[key])] for key in keys])
             high = max(1., float(finite.max()) * 1.12) if finite.size else 1.
@@ -229,9 +238,19 @@ class ProcessFigure:
                                   f"Nadawa: {at('feed_tph'):g} t/h   ·   "
                                   f"Separator: {at('separator_rpm'):g} obr/min   ·   Opór: {at('hardness'):g}"
                                   f"   ·   Gazy: {at('gas_flow_nm3_h'):.0f} Nm³/h")
-            for fill, label, key in zip(self.fills, self.mass_labels, ("chamber1_t", "chamber2_t")):
-                fill.set_height(1.68 * max(0., at(key)) / self.level_scale)
-                label.set_text(f"{at(key):.2f} t")
+            for i, (fill, label) in enumerate(zip(self.fills, self.mass_labels), 1):
+                filling = at(f'chamber{i}_fill_pct')
+                mass = max(0., at(f'chamber{i}_t'))
+                load = mass / self.material_limits_t[i - 1]
+                fill.set_height(1.68 * np.clip(load, 0, 1))
+                fill.set_facecolor('#d48383' if load >= 1 - 1e-10 else '#77bbc5')
+                label.set_text(f"{mass:.2f} t\n{100 * load:.1f}% limitu")
+                self.charge_labels[i - 1].set_text(f"Wsad: {filling:.1f}% obj.")
+            if self.s['terminated'][index]:
+                chamber = int(self.s['jammed_chamber'][index])
+                self.footer.set_text(f'Zamielenie: komora {chamber}. Symulacja zakończona po osiągnięciu limitu.')
+            else:
+                self.footer.set_text('Symulacja krokowa' if self.live else 'Odtwarzanie obliczonego przebiegu')
             for key, label in self.flow_labels.items():
                 label.set_text(f"{label.flow_name}\n{at(key):.1f} t/h")
             blaine = at("blaine_cm2_g")
@@ -310,6 +329,8 @@ class LiveWindow:
         self.render()
 
     def apply_settings(self):
+        if self.simulation.terminated:
+            return False
         try:
             feed, rpm, hardness, duration, gas = (float(value.get().strip().replace(',', '.'))
                                              for value in self.values)
@@ -335,7 +356,7 @@ class LiveWindow:
 
     def advance(self):
         remaining = self.end - self.simulation.time_min
-        if remaining <= 0:
+        if remaining <= 0 or self.simulation.terminated:
             self.pause()
             return
         try:
@@ -345,8 +366,11 @@ class LiveWindow:
             self.error.set(str(error))
             return
         self.phase += .2
-        if self.simulation.time_min >= self.end:
+        if self.simulation.time_min >= self.end or self.simulation.terminated:
             self.pause()
+        if self.simulation.terminated:
+            chamber = self.rows[-1]['jammed_chamber']
+            self.error.set(f'Zamielenie komory {chamber}. Aby kontynuować, wybierz Od początku.')
         self.render()
 
     def toggle(self):
@@ -388,7 +412,7 @@ class LiveWindow:
         self.view.set_result(self.result)
         self.view.update(self.simulation.time_min, self.phase)
         self.clock.configure(text=f'{self.simulation.time_min:.2f} / {self.end:g} min')
-        state = 'disabled' if self.simulation.time_min >= self.end else 'normal'
+        state = 'disabled' if self.simulation.time_min >= self.end or self.simulation.terminated else 'normal'
         for button in (self.step_button, self.play_button, self.apply_button):
             button.configure(state=state)
         self.canvas.draw_idle()

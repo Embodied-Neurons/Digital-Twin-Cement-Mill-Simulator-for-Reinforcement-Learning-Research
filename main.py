@@ -27,7 +27,7 @@ def run_steps(inputs, minutes, step_min):
     rows = [simulation.reset(inputs)]
     print(f"\nPraca krokowa: krok {step_min:g} min, koniec po {minutes:g} min.")
     print("Nadawa jest strumieniem w t/h. Nastawy obowiązują przez następny krok.")
-    while simulation.time_min < minutes:
+    while simulation.time_min < minutes and not simulation.terminated:
         current = simulation.inputs
         print(f"\nt = {simulation.time_min:g} min · nadawa {current.feed_tph:g} t/h"
               f" · separator {current.separator_rpm:g} obr/min · opór {current.hardness:g}"
@@ -54,6 +54,8 @@ def run_steps(inputs, minutes, step_min):
               f" · zwrot {observation['recycle_tph']:.2f} t/h"
               f" · Blaine z D32 (szac.) {observation['blaine_cm2_g']:.0f} cm2/g"
               f" · moc {observation['power_kw']:.0f} kW")
+        print(f"  Wypełnienie wsadu: komora 1 {observation['chamber1_fill_pct']:.1f}%"
+              f" · komora 2 {observation['chamber2_fill_pct']:.1f}%")
     return simulation.result(rows)
 
 
@@ -121,6 +123,9 @@ def main():
     save_plot(result, output / "wykres.png")
     s = result.series
     print(f"\nPo {s['time_min'][-1]:g} min:")
+    if s['terminated'][-1]:
+        print(f"  Zamielenie: komora {s['jammed_chamber'][-1]}. "
+              "Osiągnięto limit wypełnienia; symulacja zakończona.")
     print(f"  Produkt: {s['product_tph'][-1]:.2f} t/h")
     blaine = s['blaine_cm2_g'][-1]
     print(f"  Blaine z D32 (szac.): {blaine:.0f} cm2/g" if math.isfinite(blaine)
