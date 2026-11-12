@@ -24,6 +24,7 @@ class CementMill:
                                    p.ball_diameter2_mm, p.reference_ball_diameter2_mm)
         volume = math.pi * p.mill_diameter_m**2 / 4 * p.mill_length_m
         self.chamber_volumes_m3 = np.array([2/5, 3/5]) * volume
+        self.transport_per_h = 60 * np.array([2, 3]) / np.array([p.residence1_min, p.residence2_min])
 
     @property
     def state_size(self):
@@ -36,6 +37,22 @@ class CementMill:
     def chamber_masses(self, state):
         w = self.inventories(state)
         return np.array([w[:2].sum(), w[2:].sum()])
+
+    def charge_filling(self, state):
+        """Szacuje udział objętości komór zajęty przez kule i materiał."""
+        p = self.p
+        ball_filling = np.array([p.ball_fill1, p.ball_fill2])
+        bulk_density = p.material_density_t_m3 * (1 - p.powder_void_fraction)
+        powder_filling = np.maximum(self.chamber_masses(state), 0) / bulk_density / self.chamber_volumes_m3
+
+        return ball_filling + np.maximum(powder_filling - p.ball_void_fraction * ball_filling, 0)
+
+    def overfill_event(self, _time, state):
+        """Zwraca zapas do granicznego wypełnienia bardziej obciążonej komory."""
+        return self.p.max_charge_filling - float(self.charge_filling(state).max())
+
+    overfill_event.terminal = True
+    overfill_event.direction = -1
 
     def _fragment_distribution(self):
         """Tworzy macierz udziałów masowych fragmentów po rozdrobnieniu."""
@@ -72,23 +89,17 @@ class CementMill:
     def acceptance(self, inputs: Inputs):
         """Oblicza udział każdej klasy ziaren kierowany do produktu."""
         p = self.p
-        d50 = p.cut_size_um * 1000.0 / inputs.separator_rpm
-        decay = np.exp(-p.sharpness * self.sizes / d50)
+        gas_ratio = inputs.gas_flow_nm3_h / p.gas_reference_nm3_h
+    
+        cut_size = p.cut_size_um * 1000.0 / inputs.separator_rpm * math.sqrt(gas_ratio)
+        decay = np.exp(-p.sharpness * self.sizes / cut_size)
         e = np.expm1(p.sharpness)
         return (1 - p.bypass) * e * decay / (1 + (e - 1) * decay)
 
     def flows(self, state, inputs):
-        p = self.p
         w = np.maximum(self.inventories(state), 0)
-        masses = np.array([w[:2].sum(), w[2:].sum()])
-        q1 = max(p.transport1_per_h * masses[0] - p.transport1_offset_tph, 0.)
-        q2 = max(p.transport2_per_h * masses[1] - p.transport2_offset_tph, 0.)
-        def distribute(rate, inventory):
-            total = float(inventory.sum())
-            rate = min(rate, total / p.availability_time_h)
-            return rate * inventory / total if total > 0 else np.zeros(p.classes)
-        transfer = distribute(q1, self.screen * w[1])
-        discharge = distribute(q2, w[4])
+        transfer = self.transport_per_h[0] * self.screen * w[1]
+        discharge = self.transport_per_h[1] * w[4]
         product = self.acceptance(inputs) * discharge
         return transfer, product, discharge - product
 
@@ -113,8 +124,9 @@ class CementMill:
         dw = np.empty_like(w)
         dw[:2] = factor1 * (w[:2] @ self.k1.T)
         dw[2:] = factor2 * (w[2:] @ self.k2.T)
-        for a, b in ((0, 1), (2, 3), (3, 4)):
-            net = p.mixing_per_h * (w[a] - w[b])
+        for a, b, rate in ((0, 1, self.transport_per_h[0]),
+                           (2, 3, self.transport_per_h[1]), (3, 4, self.transport_per_h[1])):
+            net = rate * ((1 + p.backmixing_ratio) * w[a] - p.backmixing_ratio * w[b])
             dw[a] -= net
             dw[b] += net
         dw[0] += inputs.feed_tph * self.feed_fractions + recycle
@@ -129,6 +141,9 @@ class CementMill:
             return state
         for _ in range(12):
             solution = self._integrate(state, inputs, (0, 4))
+            if solution.status == 1:
+                raise ValueError('Osiągnięto limit wypełnienia przed uzyskaniem stanu ustalonego. '
+                                 'Zmniejsz nadawę lub wybierz start z pustego młyna.')
             state = solution.y[:, -1]
             residual = np.max(np.abs(self.rhs(0, state, inputs)[:-3]))
             if residual < 1e-6 * max(inputs.feed_tph, 1):
@@ -139,7 +154,17 @@ class CementMill:
     def _integrate(self, state, inputs, interval, times=None, rtol=1e-7):
         solution = solve_ivp(lambda t, y: self.rhs(t, y, inputs), interval,
                              state, t_eval=times, method="BDF", rtol=rtol,
-                             atol=1e-9, max_step=1/30)
+                             atol=1e-9, max_step=1/30, events=self.overfill_event)
+        if solution.status == 1:
+            event_time = solution.t_events[0][-1]
+            event_state = solution.y_events[0][-1]
+
+            if len(solution.t) == 0:
+                solution.t = np.array([event_time])
+                solution.y = event_state[:, np.newaxis]
+            elif solution.t[-1] != event_time:
+                solution.t = np.r_[solution.t, event_time]
+                solution.y = np.column_stack((solution.y, event_state))
         if not solution.success or not np.isfinite(solution.y).all():
             raise RuntimeError("Nie udało się rozwiązać równań modelu.")
         if np.min(solution.y[:-3]) < -1e-6:

@@ -27,10 +27,11 @@ def run_steps(inputs, minutes, step_min):
     rows = [simulation.reset(inputs)]
     print(f"\nPraca krokowa: krok {step_min:g} min, koniec po {minutes:g} min.")
     print("Nadawa jest strumieniem w t/h. Nastawy obowiązują przez następny krok.")
-    while simulation.time_min < minutes:
+    while simulation.time_min < minutes and not simulation.terminated:
         current = simulation.inputs
         print(f"\nt = {simulation.time_min:g} min · nadawa {current.feed_tph:g} t/h"
-              f" · separator {current.separator_rpm:g} obr/min · opór {current.hardness:g}")
+              f" · separator {current.separator_rpm:g} obr/min · opór {current.hardness:g}"
+              f" · gazy {current.gas_flow_nm3_h:g} Nm3/h")
         try:
             command = input("Enter = następny krok, z = zmień nastawy, q = zakończ: ").strip().lower()
             if command == 'q':
@@ -39,7 +40,8 @@ def run_steps(inputs, minutes, step_min):
                 feed = ask('Nadawa [t/h]', current.feed_tph, 0, 200)
                 rpm = ask('Obroty separatora [obr/min]', current.separator_rpm, 500, 1800)
                 hardness = ask('Opór rozdrabniania', current.hardness, 0.5, 2)
-                rows[-1] = simulation.set_inputs(Inputs(feed, rpm, hardness))
+                gas = ask('Przepływ gazów za młynem [Nm3/h]', current.gas_flow_nm3_h, 5000, 30000)
+                rows[-1] = simulation.set_inputs(Inputs(feed, rpm, hardness, gas))
             elif command:
                 print('Wybierz Enter, z albo q.')
                 continue
@@ -52,6 +54,8 @@ def run_steps(inputs, minutes, step_min):
               f" · zwrot {observation['recycle_tph']:.2f} t/h"
               f" · Blaine z D32 (szac.) {observation['blaine_cm2_g']:.0f} cm2/g"
               f" · moc {observation['power_kw']:.0f} kW")
+        print(f"  Wypełnienie wsadu: komora 1 {observation['chamber1_fill_pct']:.1f}%"
+              f" · komora 2 {observation['chamber2_fill_pct']:.1f}%")
     return simulation.result(rows)
 
 
@@ -60,6 +64,7 @@ def main():
     parser.add_argument("--feed", type=float, help="Nadawa [t/h], domyślnie 50")
     parser.add_argument("--rpm", type=float, help="Obroty separatora, domyślnie 669,9")
     parser.add_argument("--hardness", type=float, default=1, help="Opór rozdrabniania 0.5–2, domyślnie 1")
+    parser.add_argument("--gas-flow", type=float, help="Przepływ gazów za młynem [Nm3/h], domyślnie około 12616")
     parser.add_argument("--minutes", type=float, default=120, help="Czas symulacji [min], domyślnie 120")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--view", action="store_true", help="Otwórz lokalne okno wizualizacji")
@@ -73,18 +78,21 @@ def main():
         args.feed = DEFAULT_INPUTS.feed_tph
     if args.rpm is None:
         args.rpm = DEFAULT_INPUTS.separator_rpm
+    if args.gas_flow is None:
+        args.gas_flow = DEFAULT_INPUTS.gas_flow_nm3_h
     if args.view:
         from visualization import ask_parameters
-        selection = ask_parameters(args.feed, args.rpm, args.hardness, args.minutes)
+        selection = ask_parameters(args.feed, args.rpm, args.hardness, args.minutes, args.gas_flow)
         if selection is None:
             return 0
-        args.feed, args.rpm, args.hardness, args.minutes = selection
+        args.feed, args.rpm, args.hardness, args.minutes, args.gas_flow = selection
     elif len(sys.argv) == 1:
         print("Symulator młyna cementu. Enter przyjmuje wartość domyślną.\n")
         try:
             args.feed = ask("Nadawa [t/h]", args.feed, 0, 200)
             args.rpm = ask("Obroty separatora [obr/min]", args.rpm, 500, 1800)
             args.hardness = ask("Opór rozdrabniania (1 = bazowy)", 1, 0.5, 2)
+            args.gas_flow = ask("Przepływ gazów za młynem [Nm3/h]", args.gas_flow, 5000, 30000)
             args.minutes = ask("Czas symulacji [min]", 120, 1)
         except (EOFError, KeyboardInterrupt):
             print("\nPrzerwano.")
@@ -95,7 +103,7 @@ def main():
     from plots import save_plot
 
     try:
-        inputs = Inputs(args.feed, args.rpm, args.hardness)
+        inputs = Inputs(args.feed, args.rpm, args.hardness, args.gas_flow)
         scenario = Scenario(before=inputs, after=inputs, duration_min=args.minutes,
                             step_min=0, start_empty=True)
         if args.view:
@@ -115,6 +123,9 @@ def main():
     save_plot(result, output / "wykres.png")
     s = result.series
     print(f"\nPo {s['time_min'][-1]:g} min:")
+    if s['terminated'][-1]:
+        print(f"  Zamielenie: komora {s['jammed_chamber'][-1]}. "
+              "Osiągnięto limit wypełnienia; symulacja zakończona.")
     print(f"  Produkt: {s['product_tph'][-1]:.2f} t/h")
     blaine = s['blaine_cm2_g'][-1]
     print(f"  Blaine z D32 (szac.): {blaine:.0f} cm2/g" if math.isfinite(blaine)
