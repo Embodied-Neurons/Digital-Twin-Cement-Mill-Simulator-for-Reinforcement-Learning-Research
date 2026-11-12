@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 from main import ask
 from hardness_controller import HardnessController
+from parameters import Inputs
 
 def run_auto_steps(inputs, minutes, step_min, hardness_controller):
     """Wykonuje kroki symulacji z automatyczną zmianą oporu."""
     
-    from parameters import Inputs
     from simulation import MillSimulation
     
     simulation = MillSimulation()
@@ -35,12 +35,10 @@ def run_auto_steps(inputs, minutes, step_min, hardness_controller):
               f" · moc {observation['power_kw']:.0f} kW")
     return simulation.result(rows)
 
-def summary(result, title=""):
+def summary(result, output, title=""):
     from plots import save_plot
 
     print("\nPODSUMOWANIE SYMULACJI:" + title)
-    output = Path(__file__).resolve().parent / "results_comparison"
-    output.mkdir(exist_ok=True)
     title = title+"_"
     (output / (title + "wyniki.csv")).write_text(result.csv_text(), encoding="utf-8-sig")
     (output / (title + "metadata.json")).write_text(json.dumps(result.metadata(), indent=2, ensure_ascii=False), encoding="utf-8")
@@ -61,6 +59,7 @@ def summary(result, title=""):
     print(f"\nWykres: {output / (title + 'wykres.png')}\nDane:   {output / (title + 'wyniki.csv')}")
 
 def main():
+    from plots import save_hardness_comparison_plots
     print("Symulator młyna cementu. Enter przyjmuje wartość domyślną.\n")
     try:
         args_feed = ask("Nadawa [t/h]", 50, 0, 200)
@@ -71,9 +70,6 @@ def main():
     except (EOFError, KeyboardInterrupt):
         print("\nPrzerwano.")
         return 1
-
-    from parameters import Inputs
-    
     try:
         inputs = Inputs(args_feed, args_rpm, args_hardness)
         hardness_controller = HardnessController(initial_hardness=inputs.hardness, hardness_data_path="hardnessData.json")
@@ -85,9 +81,15 @@ def main():
         print(f"\nBłąd: {error}")
         return 1
 
-    summary(result_custom_hardness, title="zmienny_opor")
-    summary(result_constant_hardness, title="staly_opor")
+    output = Path(__file__).resolve().parent / "results_comparison"
+    output.mkdir(exist_ok=True)
+    summary(result_custom_hardness, output, title="zmienny_opor")
+    summary(result_constant_hardness, output, title="staly_opor")
+    save_hardness_comparison_plots(result_custom_hardness, result_constant_hardness, path = output / "wykres_porownanie_opor.png")
 
+
+    for i in result_custom_hardness.series.keys():
+        print(i)
     return 0
 
 
