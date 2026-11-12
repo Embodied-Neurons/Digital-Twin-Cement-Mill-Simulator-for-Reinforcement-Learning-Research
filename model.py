@@ -25,6 +25,17 @@ class CementMill:
         volume = math.pi * p.mill_diameter_m**2 / 4 * p.mill_length_m
         self.chamber_volumes_m3 = np.array([2/5, 3/5]) * volume
         self.transport_per_h = 60 * np.array([2, 3]) / np.array([p.residence1_min, p.residence2_min])
+        ball_filling = np.array([p.ball_fill1, p.ball_fill2])
+        self.ball_masses_t = (p.ball_density_t_m3 * (1 - p.ball_void_fraction)
+                              * ball_filling * self.chamber_volumes_m3)
+        angles = np.linspace(1e-4, math.pi - 1e-4, 4096)
+        segment = angles - np.sin(angles) * np.cos(angles)
+        self.charge_fraction_grid = segment / math.pi
+        self.charge_centroid_grid_m = p.mill_diameter_m * np.sin(angles)**3 / (3 * segment)
+        self.ball_centroid_m = np.interp(ball_filling, self.charge_fraction_grid, self.charge_centroid_grid_m)
+        self.powder_bulk_density_t_m3 = p.material_density_t_m3 * (1 - p.powder_void_fraction)
+        self.void_powder_mass_t = (self.powder_bulk_density_t_m3 * p.ball_void_fraction
+                                  * ball_filling * self.chamber_volumes_m3)
 
     @property
     def state_size(self):
@@ -109,12 +120,23 @@ class CementMill:
 
     def power_components(self, state, inputs):
         """Oblicza osobno moc młyna i separatora [kW]."""
-        load = max(float(np.sum(state[:-3])), 0.0)
         p = self.p
-        mill = p.power_scale * (p.idle_power_kw + p.load_power_kw * load / (load + 40.0))
-        separator = p.power_scale * (p.separator_idle_power_kw
-                                    + p.separator_power_kw * (inputs.separator_rpm / 1000.0) ** 3)
-        return mill, separator
+        masses = np.maximum(self.chamber_masses(state), 0)
+        filling = self.charge_filling(state)
+        centroid = np.interp(filling, self.charge_fraction_grid,
+                             self.charge_centroid_grid_m)
+        ball_filling = np.array([p.ball_fill1, p.ball_fill2])
+        inside = np.minimum(masses, self.void_powder_mass_t)
+        excess_moment = self.powder_bulk_density_t_m3 * self.chamber_volumes_m3 * np.maximum(
+            filling * centroid - ball_filling * self.ball_centroid_m, 0)
+        moment = np.dot(self.ball_masses_t + inside, self.ball_centroid_m) + excess_moment.sum()
+        mill = p.mill_lift_kw_per_t_m * float(moment)
+        discharge = self.transport_per_h[1] * np.maximum(self.inventories(state)[-1], 0).sum()
+        gas_ratio = inputs.gas_flow_nm3_h / p.gas_reference_nm3_h
+        speed_ratio = inputs.separator_rpm / 1000.0
+        separator = (p.separator_gas_power_kw * gas_ratio
+                     + p.separator_material_power_kw * discharge / p.separator_reference_feed_tph) * speed_ratio**2
+        return p.power_scale * mill, p.power_scale * float(separator)
 
     def rhs(self, _time, state, inputs):
         p = self.p

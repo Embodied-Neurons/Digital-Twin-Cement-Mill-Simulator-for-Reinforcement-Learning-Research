@@ -58,6 +58,7 @@ class Parameters:
     mill_diameter_m: float = 4.5
     mill_length_m: float = 16.0
     material_density_t_m3: float = 3.0549
+    ball_density_t_m3: float = 7.85
     ball_void_fraction: float = 0.4
     powder_void_fraction: float = 0.4
     max_charge_filling: float = 1 / 3
@@ -75,10 +76,10 @@ class Parameters:
     sharpness: float = 15.00
     bypass: float = 0.14
     feed_scale_um: float = 4000.0
-    idle_power_kw: float = 2653.76
-    load_power_kw: float = 453.42
-    separator_power_kw: float = 223.74
-    separator_idle_power_kw: float = 10.47
+    mill_lift_kw_per_t_m: float = 5.58
+    separator_gas_power_kw: float = 24.56
+    separator_material_power_kw: float = 114.88
+    separator_reference_feed_tph: float = 200.0
     power_scale: float = 1.0
     gas_reference_nm3_h: float = 12616.05
 
@@ -86,8 +87,8 @@ class Parameters:
     def demonstration(cls):
         """Tworzy zestaw parametrów demonstracyjnych."""
         return cls(breakage1_per_h=35.0, breakage2_per_h=50.0,
-                   cut_size_um=45.0, idle_power_kw=1000., load_power_kw=1200.,
-                   separator_power_kw=80., separator_idle_power_kw=0., power_scale=1.0)
+                   cut_size_um=45.0, mill_lift_kw_per_t_m=2.50,
+                   separator_gas_power_kw=20., separator_material_power_kw=80., power_scale=1.0)
 
     def __post_init__(self):
         if not isinstance(self.classes, int) or not 4 <= self.classes <= 40:
@@ -95,8 +96,8 @@ class Parameters:
         for name, value in asdict(self).items():
             if not math.isfinite(value) or value < 0:
                 raise ValueError(f"Niepoprawny parametr: {name}.")
-            if name not in ("bypass", "phi", "idle_power_kw", "load_power_kw",
-                            "separator_power_kw", "separator_idle_power_kw", "backmixing_ratio",
+            if name not in ("bypass", "phi", "mill_lift_kw_per_t_m", "separator_gas_power_kw",
+                            "separator_material_power_kw", "backmixing_ratio",
                             "reference_void_filling", "load_sensitivity") and value == 0:
                 raise ValueError(f"Parametr {name} musi być dodatni.")
         if not 0 <= self.phi <= 1 or not 0 <= self.bypass < 1:
