@@ -30,7 +30,3 @@ class HardnessController:
             hardness = end_hardness
 
         return hardness
-
-controller = HardnessController(initial_hardness=1.0, hardness_data_path=None)  # Replace None with the path to your hardnessData.json if needed
-for i in range(60):
-    print(f"Time: {i} min, Hardness: {controller.get_hardness(i)}")

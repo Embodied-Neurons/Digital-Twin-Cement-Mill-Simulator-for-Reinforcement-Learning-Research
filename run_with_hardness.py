@@ -1,8 +1,8 @@
-"""Uruchamia symulację w konsoli lub oknie i zapisuje wyniki."""
+"""Uruchamia dwie symulacje w konsoli jedną ze zmiennym oporem, drugą ze stałym zapisuje wyniki oraz wykresy z porównaniem."""
+
 import math
 import json
 from pathlib import Path
-from main import ask
 from hardness_controller import HardnessController
 from parameters import Inputs
 
@@ -59,7 +59,10 @@ def summary(result, output, title=""):
     print(f"\nWykres: {output / (title + 'wykres.png')}\nDane:   {output / (title + 'wyniki.csv')}")
 
 def main():
+
     from plots import save_hardness_comparison_plots
+    from main import ask
+    
     print("Symulator młyna cementu. Enter przyjmuje wartość domyślną.\n")
     try:
         args_feed = ask("Nadawa [t/h]", 50, 0, 200)
@@ -87,9 +90,6 @@ def main():
     summary(result_constant_hardness, output, title="staly_opor")
     save_hardness_comparison_plots(result_custom_hardness, result_constant_hardness, path = output / "wykres_porownanie_opor.png")
 
-
-    for i in result_custom_hardness.series.keys():
-        print(i)
     return 0
 
 
