@@ -219,4 +219,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-/results/
+# Ignorowanie plików wynikowych
+results/
+results_comparison/

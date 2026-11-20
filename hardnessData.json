@@ -1,0 +1,22 @@
+{
+  "shift_schedule": [
+    {
+      "start_time": 10,
+      "end_time": 30,
+      "start_hardness": 2.0,
+      "end_hardness": 0.5
+    },
+    {
+      "start_time": 40,
+      "end_time": 70,
+      "start_hardness": 1.0,
+      "end_hardness": 2.0
+    },
+    {
+      "start_time": 80,
+      "end_time": 110,
+      "start_hardness": 0.5,
+      "end_hardness": 1.0
+    }
+  ]
+}
