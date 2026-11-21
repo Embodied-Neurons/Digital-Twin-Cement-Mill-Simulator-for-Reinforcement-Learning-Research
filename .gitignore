@@ -222,3 +222,4 @@ __marimo__/
 # Ignorowanie plików wynikowych
 results/
 results_comparison/
+RL/models/
