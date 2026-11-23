@@ -59,6 +59,34 @@ def run_steps(inputs, minutes, step_min):
     return simulation.result(rows)
 
 
+def run_gym_episode(inputs, minutes):
+    """Uruchamia epizod Gymnasium przy stałych obrotach separatora."""
+    from contextlib import closing
+
+    import gymnasium as gym
+    import numpy as np
+
+    if not math.isfinite(minutes) or minutes < 1:
+        raise ValueError("Czas epizodu musi być skończony i wynosić co najmniej 1 min.")
+    steps = math.ceil(minutes)
+    with closing(gym.make("mill_env:CementMill-v0", initial_inputs=inputs,
+                          step_minutes=minutes / steps, max_episode_steps=steps)) as env:
+        env.reset()
+        hold_rpm = np.zeros(env.action_space.shape, dtype=env.action_space.dtype)
+        for _ in range(steps):
+            _, reward, terminated, truncated, info = env.step(hold_rpm)
+            if terminated or truncated:
+                break
+
+    reason = "zamielenie" if terminated else "limit czasu"
+    print(f"Epizod Gymnasium zakończony po {info['time_min']:g} min ({reason}).")
+    print(f"  Separator: {info['separator_rpm']:g} obr/min")
+    print(f"  Produkt: {info['product_tph']:.2f} t/h")
+    blaine = info['blaine_cm2_g']
+    print(f"  Blaine: {blaine:.0f} cm2/g" if blaine is not None else "  Blaine: brak produktu")
+    print(f"  Nagroda w ostatnim kroku: {reward:.3f}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prosty symulator młyna cementu")
     parser.add_argument("--feed", type=float, help="Nadawa [t/h], domyślnie 50")
@@ -68,6 +96,7 @@ def main():
     parser.add_argument("--minutes", type=float, default=120, help="Czas symulacji [min], domyślnie 120")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--view", action="store_true", help="Otwórz lokalne okno wizualizacji")
+    mode.add_argument("--gym", action="store_true", help="Uruchom epizod Gymnasium przy stałych obrotach")
     mode.add_argument("--step", nargs='?', const=1.0, type=float, metavar='MIN',
                       help="Praca krokowa w konsoli; długość kroku w minutach, domyślnie 1")
     args = parser.parse_args()
@@ -99,11 +128,12 @@ def main():
             return 1
 
     from parameters import Inputs, Scenario
-    from simulation import simulate
-    from plots import save_plot
-
     try:
         inputs = Inputs(args.feed, args.rpm, args.hardness, args.gas_flow)
+        if args.gym:
+            run_gym_episode(inputs, args.minutes)
+            return 0
+
         scenario = Scenario(before=inputs, after=inputs, duration_min=args.minutes,
                             step_min=0, start_empty=True)
         if args.view:
@@ -112,9 +142,12 @@ def main():
         elif args.step is not None:
             result = run_steps(inputs, args.minutes, args.step)
         else:
+            from simulation import simulate
             result = simulate(scenario)
     except (ValueError, RuntimeError) as error:
         parser.error(str(error))
+
+    from plots import save_plot
 
     output = Path(__file__).resolve().parent / "results"
     output.mkdir(exist_ok=True)

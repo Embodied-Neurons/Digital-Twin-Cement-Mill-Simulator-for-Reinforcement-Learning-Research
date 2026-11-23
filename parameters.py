@@ -5,6 +5,8 @@ import math
 CEMENT_ID = 6
 CEMENT_NAME = "CEM I 52,5R-NA"
 MODEL_STATUS = "model roboczy · wymaga kalibracji"
+MIN_SEPARATOR_RPM = 500
+MAX_SEPARATOR_RPM = 1800
 
 @dataclass(frozen=True)
 class Inputs:
@@ -15,7 +17,7 @@ class Inputs:
 
     def __post_init__(self):
         for name, low, high in (("feed_tph", 0, 200),
-                                ("separator_rpm", 500, 1800),
+                                ("separator_rpm", MIN_SEPARATOR_RPM, MAX_SEPARATOR_RPM),
                                 ("hardness", 0.5, 2.0),
                                 ("gas_flow_nm3_h", 5000, 30000)):
             value = getattr(self, name)
